@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#4f46e5">
+<title>Controle de Pedidos</title>
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#ffffff; --ink:#0f172a; --muted:#64748b;
+    --line:#e2e8f0; --primary:#4f46e5; --primary-d:#4338ca;
+    --red:#dc2626; --red-bg:#fef2f2; --amber:#d97706; --amber-bg:#fffbeb;
+    --green:#16a34a; --green-bg:#f0fdf4; --blue:#2563eb; --blue-bg:#eff6ff;
+    --shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.45}
+  header{background:var(--primary);color:#fff;padding:16px 18px;position:sticky;top:0;z-index:20;
+    box-shadow:0 2px 8px rgba(0,0,0,.12)}
+  .head-row{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:1000px;margin:0 auto}
+  header h1{font-size:1.15rem;margin:0;display:flex;align-items:center;gap:8px}
+  .tools{display:flex;gap:6px;flex-wrap:wrap}
+  .tools button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);
+    padding:7px 10px;border-radius:8px;font-size:.78rem;cursor:pointer;font-weight:600}
+  .tools button:hover{background:rgba(255,255,255,.28)}
+  main{max-width:1000px;margin:0 auto;padding:14px 14px 90px}
+
+  /* Resumo */
+  .resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;box-shadow:var(--shadow)}
+  .stat .n{font-size:1.4rem;font-weight:800;line-height:1}
+  .stat .l{font-size:.68rem;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.03em}
+  .stat.atras .n{color:var(--red)} .stat.pend .n{color:var(--amber)}
+  .stat.entr .n{color:var(--green)} .stat.tot .n{color:var(--primary)}
+
+  /* Form */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+  .form-card{padding:14px;margin-bottom:14px}
+  .form-card h2{margin:0 0 10px;font-size:.95rem;display:flex;align-items:center;gap:8px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field.full{grid-column:1 / -1}
+  label{font-size:.76rem;font-weight:600;color:var(--muted)}
+  input,select,textarea{font:inherit;padding:10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);width:100%}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,70,229,.15)}
+  textarea{resize:vertical;min-height:42px}
+  .form-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .btn{padding:11px 16px;border-radius:10px;border:none;font-weight:700;cursor:pointer;font-size:.9rem}
+  .btn-primary{background:var(--primary);color:#fff}
+  .btn-primary:hover{background:var(--primary-d)}
+  .btn-ghost{background:#fff;color:var(--muted);border:1px solid var(--line)}
+  .btn-ghost:hover{background:#f8fafc}
+
+  /* Filtros */
+  .filtros{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{padding:7px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted);
+    font-size:.8rem;font-weight:600;cursor:pointer}
+  .chip.on{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .busca{flex:1;min-width:160px}
+
+  /* Lista */
+  .lista{display:flex;flex-direction:column;gap:10px}
+  .pedido{padding:12px 14px;display:flex;gap:12px;align-items:flex-start;border-left:5px solid var(--line)}
+  .pedido.s-atrasado{border-left-color:var(--red)}
+  .pedido.s-hoje{border-left-color:var(--amber)}
+  .pedido.s-prazo{border-left-color:var(--blue)}
+  .pedido.s-entregue{border-left-color:var(--green);opacity:.85}
+  .ped-main{flex:1;min-width:0}
+  .ped-desc{font-weight:700;font-size:1rem;word-break:break-word}
+  .ped-desc.done{text-decoration:line-through;color:var(--muted)}
+  .ped-sub{font-size:.8rem;color:var(--muted);margin-top:2px}
+  .ped-datas{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:.82rem}
+  .ped-datas span b{color:var(--ink)}
+  .ped-obs{font-size:.8rem;color:var(--muted);margin-top:6px;font-style:italic}
+  .badge{display:inline-block;padding:4px 9px;border-radius:999px;font-size:.74rem;font-weight:700;white-space:nowrap}
+  .b-atrasado{background:var(--red-bg);color:var(--red)}
+  .b-hoje{background:var(--amber-bg);color:var(--amber)}
+  .b-prazo{background:var(--blue-bg);color:var(--blue)}
+  .b-entregue{background:var(--green-bg);color:var(--green)}
+  .ped-side{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .ped-acts{display:flex;gap:4px}
+  .icon-btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:.9rem;line-height:1}
+  .icon-btn:hover{background:#f8fafc}
+  .icon-btn.ok:hover{background:var(--green-bg);border-color:var(--green)}
+  .icon-btn.del:hover{background:var(--red-bg);border-color:var(--red)}
+  .vazio{text-align:center;color:var(--muted);padding:50px 20px}
+  .vazio .em{font-size:2.4rem}
+  footer{text-align:center;color:var(--muted);font-size:.74rem;padding:18px}
+  input[type="file"]{display:none}
+
+  @media (max-width:560px){
+    .resumo{grid-template-columns:repeat(2,1fr)}
+    .grid{grid-template-columns:1fr}
+    header h1{font-size:1rem}
+    .tools button{padding:6px 8px;font-size:.72rem}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="head-row">
+    <h1>📦 Meus Pedidos</h1>
+    <div class="tools">
+      <button id="btnBackup" title="Salvar uma cópia para o Google Drive">⬇️ Backup</button>
+      <button id="btnRestaurar" title="Carregar dados de um backup">⬆️ Restaurar</button>
+      <input type="file" id="fileInput" accept="application/json,.json">
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- Resumo -->
+  <section class="resumo">
+    <div class="stat tot"><div class="n" id="stTotal">0</div><div class="l">Total</div></div>
+    <div class="stat pend"><div class="n" id="stPend">0</div><div class="l">Pendentes</div></div>
+    <div class="stat atras"><div class="n" id="stAtras">0</div><div class="l">Atrasados</div></div>
+    <div class="stat entr"><div class="n" id="stEntr">0</div><div class="l">Entregues</div></div>
+  </section>
+
+  <!-- Formulário -->
+  <section class="card form-card">
+    <h2 id="formTitulo">➕ Lançar novo pedido</h2>
+    <form id="form">
+      <input type="hidden" id="editId">
+      <div class="grid">
+        <div class="field full">
+          <label for="descricao">O que eu pedi *</label>
+          <input id="descricao" required placeholder="Ex.: Fechadura digital, cimento, etc.">
+        </div>
+        <div class="field">
+          <label for="fornecedor">Fornecedor / Loja</label>
+          <input id="fornecedor" placeholder="Ex.: Leroy Merlin">
+        </div>
+        <div class="field">
+          <label for="valor">Valor (opcional)</label>
+          <input id="valor" inputmode="decimal" placeholder="Ex.: 250,00">
+        </div>
+        <div class="field">
+          <label for="dataPedido">Data do pedido *</label>
+          <input type="date" id="dataPedido" required>
+        </div>
+        <div class="field">
+          <label for="previsao">Previsão de entrega *</label>
+          <input type="date" id="previsao" required>
+        </div>
+        <div class="field full">
+          <label for="obs">Observações</label>
+          <textarea id="obs" placeholder="Cor, código de rastreio, detalhes..."></textarea>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" id="btnSalvar">Adicionar pedido</button>
+        <button type="button" class="btn btn-ghost" id="btnCancelar" style="display:none">Cancelar edição</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Filtros -->
+  <div class="filtros">
+    <div class="chips" id="chips">
+      <button class="chip on" data-f="todos">Todos</button>
+      <button class="chip" data-f="pendentes">Pendentes</button>
+      <button class="chip" data-f="atrasados">Atrasados</button>
+      <button class="chip" data-f="entregues">Entregues</button>
+    </div>
+    <input class="busca" id="busca" placeholder="🔎 Buscar pedido...">
+  </div>
+
+  <!-- Lista -->
+  <section class="lista" id="lista"></section>
+</main>
+
+<footer>Os dados ficam salvos neste aparelho. Use <b>Backup</b> no Google Drive para acessar de outro dispositivo.</footer>
+
+<script>
+(function(){
+  "use strict";
+  const KEY = "pedidos_v1";
+  let pedidos = carregar();
+  let filtro = "todos";
+  let busca = "";
+
+  // ---------- Datas (sem problema de fuso) ----------
+  function hoje(){ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),d.getDate()); }
+  function parseData(s){ if(!s) return null; const p=s.split("-"); return new Date(+p[0],+p[1]-1,+p[2]); }
+  function diffDias(a,b){ return Math.round((a-b)/86400000); } // a - b em dias
+  function fmt(s){ if(!s) return "—"; const d=parseData(s); return d.toLocaleDateString("pt-BR"); }
+  function hojeISO(){ const d=hoje(); return d.toISOString().slice(0,10); }
+
+  // ---------- Status ----------
+  function status(p){
+    if(p.entregue) return {key:"entregue",classe:"s-entregue",badge:"b-entregue",texto:"✅ Entregue",ordem:4,dias:0};
+    const prev=parseData(p.previsao);
+    if(!prev) return {key:"prazo",classe:"s-prazo",badge:"b-prazo",texto:"Sem previsão",ordem:3,dias:0};
+    const d=diffDias(prev,hoje());
+    if(d<0)  return {key:"atrasado",classe:"s-atrasado",badge:"b-atrasado",texto:"⚠️ Atrasado "+(-d)+(d===-1?" dia":" dias"),ordem:0,dias:d};
+    if(d===0)return {key:"hoje",classe:"s-hoje",badge:"b-hoje",texto:"📍 Entrega hoje",ordem:1,dias:0};
+    return {key:"prazo",classe:"s-prazo",badge:"b-prazo",texto:"🕒 Faltam "+d+(d===1?" dia":" dias"),ordem:2,dias:d};
+  }
+
+  // ---------- Armazenamento ----------
+  function carregar(){ try{ return JSON.parse(localStorage.getItem(KEY))||[]; }catch(e){ return []; } }
+  function salvar(){ localStorage.setItem(KEY,JSON.stringify(pedidos)); }
+
+  // ---------- Render ----------
+  function render(){
+    // resumo
+    let pend=0,atras=0,entr=0;
+    pedidos.forEach(p=>{ const s=status(p);
+      if(s.key==="entregue") entr++; else { pend++; if(s.key==="atrasado") atras++; } });
+    document.getElementById("stTotal").textContent=pedidos.length;
+    document.getElementById("stPend").textContent=pend;
+    document.getElementById("stAtras").textContent=atras;
+    document.getElementById("stEntr").textContent=entr;
+
+    // filtrar + ordenar
+    let lista=pedidos.map(p=>({p,s:status(p)})).filter(({p,s})=>{
+      if(filtro==="pendentes" && s.key==="entregue") return false;
+      if(filtro==="atrasados" && s.key!=="atrasado") return false;
+      if(filtro==="entregues" && s.key!=="entregue") return false;
+      if(busca){ const t=(p.descricao+" "+(p.fornecedor||"")+" "+(p.obs||"")).toLowerCase();
+        if(!t.includes(busca.toLowerCase())) return false; }
+      return true;
+    });
+    lista.sort((a,b)=> a.s.ordem-b.s.ordem || a.s.dias-b.s.dias ||
+      (parseData(a.p.previsao)||0)-(parseData(b.p.previsao)||0));
+
+    const cont=document.getElementById("lista");
+    if(!lista.length){
+      cont.innerHTML='<div class="vazio"><div class="em">🗂️</div><p>'+
+        (pedidos.length? "Nenhum pedido neste filtro." : "Nenhum pedido ainda. Lance o primeiro acima!")+'</p></div>';
+      return;
+    }
+    cont.innerHTML=lista.map(({p,s})=>cardHTML(p,s)).join("");
+  }
+
+  function esc(t){ return (t||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+  function cardHTML(p,s){
+    const valor = p.valor ? '<span>💰 <b>R$ '+esc(p.valor)+'</b></span>' : '';
+    const forn  = p.fornecedor ? '<div class="ped-sub">🏬 '+esc(p.fornecedor)+'</div>' : '';
+    const obs   = p.obs ? '<div class="ped-obs">📝 '+esc(p.obs)+'</div>' : '';
+    const ent   = p.entregue
+      ? '<button class="icon-btn" title="Marcar como pendente" onclick="App.reabrir('+p.id+')">↩️</button>'
+      : '<button class="icon-btn ok" title="Marcar como entregue" onclick="App.entregar('+p.id+')">✅</button>';
+    return '<div class="card pedido '+s.classe+'">'+
+      '<div class="ped-main">'+
+        '<div class="ped-desc'+(p.entregue?" done":"")+'">'+esc(p.descricao)+'</div>'+
+        forn+
+        '<div class="ped-datas">'+
+          '<span>📅 Pedido: <b>'+fmt(p.dataPedido)+'</b></span>'+
+          '<span>🚚 Previsão: <b>'+fmt(p.previsao)+'</b></span>'+
+          (p.entregue&&p.dataEntrega?'<span>📬 Entregue: <b>'+fmt(p.dataEntrega)+'</b></span>':'')+
+          valor+
+        '</div>'+ obs +
+      '</div>'+
+      '<div class="ped-side">'+
+        '<span class="badge '+s.badge+'">'+s.texto+'</span>'+
+        '<div class="ped-acts">'+ ent +
+          '<button class="icon-btn" title="Editar" onclick="App.editar('+p.id+')">✏️</button>'+
+          '<button class="icon-btn del" title="Excluir" onclick="App.excluir('+p.id+')">🗑️</button>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  // ---------- Form ----------
+  const form=document.getElementById("form");
+  form.addEventListener("submit",function(e){
+    e.preventDefault();
+    const id=document.getElementById("editId").value;
+    const dados={
+      descricao:document.getElementById("descricao").value.trim(),
+      fornecedor:document.getElementById("fornecedor").value.trim(),
+      valor:document.getElementById("valor").value.trim(),
+      dataPedido:document.getElementById("dataPedido").value,
+      previsao:document.getElementById("previsao").value,
+      obs:document.getElementById("obs").value.trim()
+    };
+    if(!dados.descricao||!dados.dataPedido||!dados.previsao) return;
+    if(id){
+      const p=pedidos.find(x=>x.id==id); Object.assign(p,dados);
+    }else{
+      dados.id=Date.now(); dados.entregue=false; dados.dataEntrega=null;
+      pedidos.push(dados);
+    }
+    salvar(); resetForm(); render();
+  });
+
+  function resetForm(){
+    form.reset();
+    document.getElementById("editId").value="";
+    document.getElementById("dataPedido").value=hojeISO();
+    document.getElementById("formTitulo").textContent="➕ Lançar novo pedido";
+    document.getElementById("btnSalvar").textContent="Adicionar pedido";
+    document.getElementById("btnCancelar").style.display="none";
+  }
+  document.getElementById("btnCancelar").addEventListener("click",resetForm);
+
+  // ---------- API pública (botões) ----------
+  window.App={
+    entregar(id){ const p=pedidos.find(x=>x.id==id); p.entregue=true; p.dataEntrega=hojeISO(); salvar(); render(); },
+    reabrir(id){ const p=pedidos.find(x=>x.id==id); p.entregue=false; p.dataEntrega=null; salvar(); render(); },
+    excluir(id){ if(confirm("Excluir este pedido?")){ pedidos=pedidos.filter(x=>x.id!=id); salvar(); render(); } },
+    editar(id){
+      const p=pedidos.find(x=>x.id==id); if(!p) return;
+      document.getElementById("editId").value=p.id;
+      document.getElementById("descricao").value=p.descricao||"";
+      document.getElementById("fornecedor").value=p.fornecedor||"";
+      document.getElementById("valor").value=p.valor||"";
+      document.getElementById("dataPedido").value=p.dataPedido||"";
+      document.getElementById("previsao").value=p.previsao||"";
+      document.getElementById("obs").value=p.obs||"";
+      document.getElementById("formTitulo").textContent="✏️ Editar pedido";
+      document.getElementById("btnSalvar").textContent="Salvar alterações";
+      document.getElementById("btnCancelar").style.display="inline-block";
+      window.scrollTo({top:0,behavior:"smooth"});
+    }
+  };
+
+  // ---------- Filtros / busca ----------
+  document.getElementById("chips").addEventListener("click",function(e){
+    const b=e.target.closest(".chip"); if(!b) return;
+    filtro=b.dataset.f;
+    [...this.children].forEach(c=>c.classList.toggle("on",c===b));
+    render();
+  });
+  document.getElementById("busca").addEventListener("input",function(){ busca=this.value; render(); });
+
+  // ---------- Backup / Restaurar ----------
+  document.getElementById("btnBackup").addEventListener("click",function(){
+    const blob=new Blob([JSON.stringify(pedidos,null,2)],{type:"application/json"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="pedidos-backup-"+hojeISO()+".json";
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+  document.getElementById("btnRestaurar").addEventListener("click",()=>document.getElementById("fileInput").click());
+  document.getElementById("fileInput").addEventListener("change",function(e){
+    const f=e.target.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{
+      try{
+        const dados=JSON.parse(r.result);
+        if(!Array.isArray(dados)) throw 0;
+        if(pedidos.length && !confirm("Substituir os "+pedidos.length+" pedido(s) atuais pelos "+dados.length+" do backup?")) return;
+        pedidos=dados; salvar(); render();
+        alert("Backup restaurado: "+dados.length+" pedido(s).");
+      }catch(err){ alert("Arquivo inválido. Selecione um backup gerado por este app."); }
+      e.target.value="";
+    };
+    r.readAsText(f);
+  });
+
+  // ---------- Início ----------
+  resetForm();
+  render();
+})();
+</script>
+</body>
+</html>
