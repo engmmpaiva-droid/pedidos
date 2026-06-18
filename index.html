@@ -42,6 +42,7 @@
   .field{display:flex;flex-direction:column;gap:4px}
   .field.full{grid-column:1 / -1}
   label{font-size:.76rem;font-weight:600;color:var(--muted)}
+  .hint{font-size:.68rem;color:var(--muted);margin-top:2px}
   input,select,textarea{font:inherit;padding:10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);width:100%}
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,70,229,.15)}
   textarea{resize:vertical;min-height:42px}
@@ -165,8 +166,9 @@
           <input type="date" id="dataPedido" required>
         </div>
         <div class="field">
-          <label for="previsao">Previsão de entrega *</label>
-          <input type="date" id="previsao" required>
+          <label for="prazoDias">Dias para entrega *</label>
+          <input type="number" id="prazoDias" min="0" step="1" required placeholder="Ex.: 10">
+          <small class="hint">dias corridos, a partir da data do pedido</small>
         </div>
         <div class="field full">
           <label for="obs">Observações</label>
@@ -220,12 +222,29 @@
   function parseData(s){ if(!s) return null; const p=s.split("-"); return new Date(+p[0],+p[1]-1,+p[2]); }
   function diffDias(a,b){ return Math.round((a-b)/86400000); } // a - b em dias
   function fmt(s){ if(!s) return "—"; const d=parseData(s); return d.toLocaleDateString("pt-BR"); }
+  function fmtData(d){ return d ? d.toLocaleDateString("pt-BR") : "—"; }
   function hojeISO(){ const d=hoje(); return d.toISOString().slice(0,10); }
+
+  // Data de entrega prevista = data do pedido + nº de dias corridos.
+  // Compatível com pedidos antigos que guardavam a data ("previsao") em vez dos dias.
+  function dataEntregaPrev(p){
+    if(p.prazoDias!==undefined && p.prazoDias!=="" && !isNaN(parseInt(p.prazoDias,10))){
+      const base=parseData(p.dataPedido); if(!base) return null;
+      const d=new Date(base); d.setDate(d.getDate()+parseInt(p.prazoDias,10)); return d;
+    }
+    return parseData(p.previsao); // fallback p/ registros antigos
+  }
+  // Nº de dias de prazo (para preencher ao editar registros antigos)
+  function prazoDe(p){
+    if(p.prazoDias!==undefined && p.prazoDias!=="") return p.prazoDias;
+    if(p.previsao && p.dataPedido) return String(diffDias(parseData(p.previsao),parseData(p.dataPedido)));
+    return "";
+  }
 
   // ---------- Status ----------
   function status(p){
     if(p.entregue) return {key:"entregue",classe:"s-entregue",badge:"b-entregue",texto:"✅ Entregue",ordem:4,dias:0};
-    const prev=parseData(p.previsao);
+    const prev=dataEntregaPrev(p);
     if(!prev) return {key:"prazo",classe:"s-prazo",badge:"b-prazo",texto:"Sem previsão",ordem:3,dias:0};
     const d=diffDias(prev,hoje());
     if(d<0)  return {key:"atrasado",classe:"s-atrasado",badge:"b-atrasado",texto:"⚠️ Atrasado "+(-d)+(d===-1?" dia":" dias"),ordem:0,dias:d};
@@ -237,13 +256,13 @@
   function txt(a,b){ return (a||"").localeCompare((b||""),"pt",{sensitivity:"base",numeric:true}); }
   function comparar(a,b){
     switch(ordenar){
-      case "previsao":      return parseData(a.p.previsao)-parseData(b.p.previsao);
+      case "previsao":      return dataEntregaPrev(a.p)-dataEntregaPrev(b.p);
       case "pedido_antigo": return parseData(a.p.dataPedido)-parseData(b.p.dataPedido);
       case "pedido_novo":   return parseData(b.p.dataPedido)-parseData(a.p.dataPedido);
       case "az":            return txt(a.p.descricao,b.p.descricao);
       case "za":            return txt(b.p.descricao,a.p.descricao);
-      case "local":         return txt(a.p.local,b.p.local) || parseData(a.p.previsao)-parseData(b.p.previsao);
-      default:              return a.s.ordem-b.s.ordem || a.s.dias-b.s.dias || parseData(a.p.previsao)-parseData(b.p.previsao);
+      case "local":         return txt(a.p.local,b.p.local) || dataEntregaPrev(a.p)-dataEntregaPrev(b.p);
+      default:              return a.s.ordem-b.s.ordem || a.s.dias-b.s.dias || dataEntregaPrev(a.p)-dataEntregaPrev(b.p);
     }
   }
 
@@ -308,7 +327,7 @@
         '<div class="ped-datas">'+
           qtd+
           '<span>📅 Pedido: <b>'+fmt(p.dataPedido)+'</b></span>'+
-          '<span>🚚 Previsão: <b>'+fmt(p.previsao)+'</b></span>'+
+          '<span>🚚 Previsão: <b>'+fmtData(dataEntregaPrev(p))+'</b>'+((prazoDe(p)!==""&&+prazoDe(p)>=0)?' ('+esc(prazoDe(p))+' dias)':'')+'</span>'+
           (p.entregue&&p.dataEntrega?'<span>📬 Entregue: <b>'+fmt(p.dataEntrega)+'</b></span>':'')+
           valor+ local +
         '</div>'+ obs +
@@ -336,10 +355,10 @@
       valor:document.getElementById("valor").value.trim(),
       local:document.getElementById("local").value.trim(),
       dataPedido:document.getElementById("dataPedido").value,
-      previsao:document.getElementById("previsao").value,
+      prazoDias:document.getElementById("prazoDias").value.trim(),
       obs:document.getElementById("obs").value.trim()
     };
-    if(!dados.descricao||!dados.dataPedido||!dados.previsao) return;
+    if(!dados.descricao||!dados.dataPedido||dados.prazoDias===""||isNaN(parseInt(dados.prazoDias,10))) return;
     if(id){
       const p=pedidos.find(x=>x.id==id); Object.assign(p,dados);
     }else{
@@ -374,7 +393,7 @@
       document.getElementById("valor").value=p.valor||"";
       document.getElementById("local").value=p.local||"";
       document.getElementById("dataPedido").value=p.dataPedido||"";
-      document.getElementById("previsao").value=p.previsao||"";
+      document.getElementById("prazoDias").value=prazoDe(p);
       document.getElementById("obs").value=p.obs||"";
       document.getElementById("formTitulo").textContent="✏️ Editar pedido";
       document.getElementById("btnSalvar").textContent="Salvar alterações";
