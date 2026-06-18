@@ -92,6 +92,15 @@
   footer{text-align:center;color:var(--muted);font-size:.74rem;padding:18px}
   input[type="file"]{display:none}
 
+  /* Modal de entrega */
+  .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+  .modal{background:var(--card);border-radius:16px;padding:20px;width:100%;max-width:360px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
+  .modal h3{margin:0 0 4px;font-size:1.05rem}
+  .modal p{margin:0 0 14px;font-size:.82rem;color:var(--muted)}
+  .modal label{display:block;margin-bottom:4px}
+  .modal input{margin-bottom:16px}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end}
+
   @media (max-width:560px){
     .resumo{grid-template-columns:repeat(2,1fr)}
     .grid{grid-template-columns:1fr}
@@ -208,6 +217,20 @@
 
 <footer>Os dados ficam salvos neste aparelho. Use <b>Backup</b> no Google Drive para acessar de outro dispositivo.</footer>
 
+<!-- Modal: data da entrega -->
+<div class="modal-overlay" id="modalEntrega">
+  <div class="modal">
+    <h3>📬 Registrar entrega</h3>
+    <p id="modalItem">Em que dia o item foi entregue?</p>
+    <label for="dataEntregaInput">Data da entrega</label>
+    <input type="date" id="dataEntregaInput">
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="modalCancelar">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="modalConfirmar">Confirmar entrega</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
@@ -216,6 +239,7 @@
   let filtro = "todos";
   let busca = "";
   let ordenar = localStorage.getItem("pedidos_ordenar") || "padrao";
+  let pendenteEntregaId = null;
 
   // ---------- Datas (sem problema de fuso) ----------
   function hoje(){ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),d.getDate()); }
@@ -239,6 +263,12 @@
     if(p.prazoDias!==undefined && p.prazoDias!=="") return p.prazoDias;
     if(p.previsao && p.dataPedido) return String(diffDias(parseData(p.previsao),parseData(p.dataPedido)));
     return "";
+  }
+  // Dias corridos entre a data do pedido e a data da entrega
+  function diasEntrega(p){
+    if(!p.dataEntrega || !p.dataPedido) return "";
+    const n=diffDias(parseData(p.dataEntrega),parseData(p.dataPedido));
+    return n+(Math.abs(n)===1?" dia":" dias");
   }
 
   // ---------- Status ----------
@@ -328,7 +358,7 @@
           qtd+
           '<span>📅 Pedido: <b>'+fmt(p.dataPedido)+'</b></span>'+
           '<span>🚚 Previsão: <b>'+fmtData(dataEntregaPrev(p))+'</b>'+((prazoDe(p)!==""&&+prazoDe(p)>=0)?' ('+esc(prazoDe(p))+' dias)':'')+'</span>'+
-          (p.entregue&&p.dataEntrega?'<span>📬 Entregue: <b>'+fmt(p.dataEntrega)+'</b></span>':'')+
+          (p.entregue&&p.dataEntrega?'<span>📬 Entregue: <b>'+fmt(p.dataEntrega)+'</b></span><span>⏱️ Levou <b>'+diasEntrega(p)+'</b></span>':'')+
           valor+ local +
         '</div>'+ obs +
       '</div>'+
@@ -380,7 +410,13 @@
 
   // ---------- API pública (botões) ----------
   window.App={
-    entregar(id){ const p=pedidos.find(x=>x.id==id); p.entregue=true; p.dataEntrega=hojeISO(); salvar(); render(); },
+    entregar(id){
+      const p=pedidos.find(x=>x.id==id); if(!p) return;
+      pendenteEntregaId=id;
+      document.getElementById("modalItem").textContent='Em que dia "'+p.descricao+'" foi entregue?';
+      document.getElementById("dataEntregaInput").value=p.dataEntrega||hojeISO();
+      document.getElementById("modalEntrega").style.display="flex";
+    },
     reabrir(id){ const p=pedidos.find(x=>x.id==id); p.entregue=false; p.dataEntrega=null; salvar(); render(); },
     excluir(id){ if(confirm("Excluir este pedido?")){ pedidos=pedidos.filter(x=>x.id!=id); salvar(); render(); } },
     editar(id){
@@ -413,6 +449,18 @@
   const selOrd=document.getElementById("ordenar");
   selOrd.value=ordenar;
   selOrd.addEventListener("change",function(){ ordenar=this.value; localStorage.setItem("pedidos_ordenar",ordenar); render(); });
+
+  // ---------- Modal de entrega ----------
+  function fecharModal(){ pendenteEntregaId=null; document.getElementById("modalEntrega").style.display="none"; }
+  document.getElementById("modalCancelar").addEventListener("click",fecharModal);
+  document.getElementById("modalEntrega").addEventListener("click",function(e){ if(e.target===this) fecharModal(); });
+  document.getElementById("modalConfirmar").addEventListener("click",function(){
+    const p=pedidos.find(x=>x.id==pendenteEntregaId); if(!p){ fecharModal(); return; }
+    const dt=document.getElementById("dataEntregaInput").value;
+    if(!dt){ alert("Informe a data da entrega."); return; }
+    if(parseData(dt) < parseData(p.dataPedido)){ alert("A data da entrega não pode ser anterior à data do pedido ("+fmt(p.dataPedido)+")."); return; }
+    p.entregue=true; p.dataEntrega=dt; salvar(); fecharModal(); render();
+  });
 
   // ---------- Backup / Restaurar ----------
   document.getElementById("btnBackup").addEventListener("click",function(){
