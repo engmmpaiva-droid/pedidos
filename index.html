@@ -59,6 +59,7 @@
     font-size:.8rem;font-weight:600;cursor:pointer}
   .chip.on{background:var(--primary);color:#fff;border-color:var(--primary)}
   .busca{flex:1;min-width:160px}
+  .ordenar{padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font-size:.8rem;font-weight:600;cursor:pointer}
 
   /* Lista */
   .lista{display:flex;flex-direction:column;gap:10px}
@@ -154,6 +155,11 @@
           <label for="valor">Valor (opcional)</label>
           <input id="valor" inputmode="decimal" placeholder="Ex.: 250,00">
         </div>
+        <div class="field full">
+          <label for="local">Onde foi usado / Local</label>
+          <input id="local" list="locais" placeholder="Ex.: Banheiro 2º andar, Obra Rua X">
+          <datalist id="locais"></datalist>
+        </div>
         <div class="field">
           <label for="dataPedido">Data do pedido *</label>
           <input type="date" id="dataPedido" required>
@@ -182,6 +188,15 @@
       <button class="chip" data-f="atrasados">Atrasados</button>
       <button class="chip" data-f="entregues">Entregues</button>
     </div>
+    <select class="ordenar" id="ordenar" title="Ordenar a lista">
+      <option value="padrao">↕ Padrão (atrasados 1º)</option>
+      <option value="previsao">Previsão (mais próxima)</option>
+      <option value="pedido_antigo">Pedido (mais antigo → novo)</option>
+      <option value="pedido_novo">Pedido (mais novo → antigo)</option>
+      <option value="az">Nome (A → Z)</option>
+      <option value="za">Nome (Z → A)</option>
+      <option value="local">Local de uso (A → Z)</option>
+    </select>
     <input class="busca" id="busca" placeholder="🔎 Buscar pedido...">
   </div>
 
@@ -198,6 +213,7 @@
   let pedidos = carregar();
   let filtro = "todos";
   let busca = "";
+  let ordenar = localStorage.getItem("pedidos_ordenar") || "padrao";
 
   // ---------- Datas (sem problema de fuso) ----------
   function hoje(){ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),d.getDate()); }
@@ -217,12 +233,27 @@
     return {key:"prazo",classe:"s-prazo",badge:"b-prazo",texto:"🕒 Faltam "+d+(d===1?" dia":" dias"),ordem:2,dias:d};
   }
 
+  // ---------- Ordenação ----------
+  function txt(a,b){ return (a||"").localeCompare((b||""),"pt",{sensitivity:"base",numeric:true}); }
+  function comparar(a,b){
+    switch(ordenar){
+      case "previsao":      return parseData(a.p.previsao)-parseData(b.p.previsao);
+      case "pedido_antigo": return parseData(a.p.dataPedido)-parseData(b.p.dataPedido);
+      case "pedido_novo":   return parseData(b.p.dataPedido)-parseData(a.p.dataPedido);
+      case "az":            return txt(a.p.descricao,b.p.descricao);
+      case "za":            return txt(b.p.descricao,a.p.descricao);
+      case "local":         return txt(a.p.local,b.p.local) || parseData(a.p.previsao)-parseData(b.p.previsao);
+      default:              return a.s.ordem-b.s.ordem || a.s.dias-b.s.dias || parseData(a.p.previsao)-parseData(b.p.previsao);
+    }
+  }
+
   // ---------- Armazenamento ----------
   function carregar(){ try{ return JSON.parse(localStorage.getItem(KEY))||[]; }catch(e){ return []; } }
   function salvar(){ localStorage.setItem(KEY,JSON.stringify(pedidos)); }
 
   // ---------- Render ----------
   function render(){
+    refreshLocais();
     // resumo
     let pend=0,atras=0,entr=0;
     pedidos.forEach(p=>{ const s=status(p);
@@ -237,12 +268,11 @@
       if(filtro==="pendentes" && s.key==="entregue") return false;
       if(filtro==="atrasados" && s.key!=="atrasado") return false;
       if(filtro==="entregues" && s.key!=="entregue") return false;
-      if(busca){ const t=(p.descricao+" "+(p.fornecedor||"")+" "+(p.obs||"")).toLowerCase();
+      if(busca){ const t=(p.descricao+" "+(p.fornecedor||"")+" "+(p.local||"")+" "+(p.obs||"")).toLowerCase();
         if(!t.includes(busca.toLowerCase())) return false; }
       return true;
     });
-    lista.sort((a,b)=> a.s.ordem-b.s.ordem || a.s.dias-b.s.dias ||
-      (parseData(a.p.previsao)||0)-(parseData(b.p.previsao)||0));
+    lista.sort(comparar);
 
     const cont=document.getElementById("lista");
     if(!lista.length){
@@ -255,11 +285,18 @@
 
   function esc(t){ return (t||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
+  // Sugere no campo "Local" os lugares já cadastrados
+  function refreshLocais(){
+    const locs=[...new Set(pedidos.map(p=>p.local).filter(Boolean))].sort(txt);
+    document.getElementById("locais").innerHTML=locs.map(l=>'<option value="'+esc(l)+'"></option>').join("");
+  }
+
   function cardHTML(p,s){
     const valor = p.valor ? '<span>💰 <b>R$ '+esc(p.valor)+'</b></span>' : '';
     const qtdTxt = ((p.quantidade||'')+' '+(p.unidade||'')).trim();
     const qtd  = qtdTxt ? '<span>📦 Qtd: <b>'+esc(qtdTxt)+'</b></span>' : '';
     const forn  = p.fornecedor ? '<div class="ped-sub">🏬 '+esc(p.fornecedor)+'</div>' : '';
+    const local = p.local ? '<span>📍 Usado em: <b>'+esc(p.local)+'</b></span>' : '';
     const obs   = p.obs ? '<div class="ped-obs">📝 '+esc(p.obs)+'</div>' : '';
     const ent   = p.entregue
       ? '<button class="icon-btn" title="Marcar como pendente" onclick="App.reabrir('+p.id+')">↩️</button>'
@@ -273,7 +310,7 @@
           '<span>📅 Pedido: <b>'+fmt(p.dataPedido)+'</b></span>'+
           '<span>🚚 Previsão: <b>'+fmt(p.previsao)+'</b></span>'+
           (p.entregue&&p.dataEntrega?'<span>📬 Entregue: <b>'+fmt(p.dataEntrega)+'</b></span>':'')+
-          valor+
+          valor+ local +
         '</div>'+ obs +
       '</div>'+
       '<div class="ped-side">'+
@@ -297,6 +334,7 @@
       unidade:document.getElementById("unidade").value.trim(),
       fornecedor:document.getElementById("fornecedor").value.trim(),
       valor:document.getElementById("valor").value.trim(),
+      local:document.getElementById("local").value.trim(),
       dataPedido:document.getElementById("dataPedido").value,
       previsao:document.getElementById("previsao").value,
       obs:document.getElementById("obs").value.trim()
@@ -334,6 +372,7 @@
       document.getElementById("unidade").value=p.unidade||"";
       document.getElementById("fornecedor").value=p.fornecedor||"";
       document.getElementById("valor").value=p.valor||"";
+      document.getElementById("local").value=p.local||"";
       document.getElementById("dataPedido").value=p.dataPedido||"";
       document.getElementById("previsao").value=p.previsao||"";
       document.getElementById("obs").value=p.obs||"";
@@ -352,6 +391,9 @@
     render();
   });
   document.getElementById("busca").addEventListener("input",function(){ busca=this.value; render(); });
+  const selOrd=document.getElementById("ordenar");
+  selOrd.value=ordenar;
+  selOrd.addEventListener("change",function(){ ordenar=this.value; localStorage.setItem("pedidos_ordenar",ordenar); render(); });
 
   // ---------- Backup / Restaurar ----------
   document.getElementById("btnBackup").addEventListener("click",function(){
