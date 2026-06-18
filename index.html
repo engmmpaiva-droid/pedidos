@@ -101,6 +101,18 @@
   .modal input{margin-bottom:16px}
   .modal-actions{display:flex;gap:8px;justify-content:flex-end}
 
+  /* Login / sincronização */
+  .auth-overlay{position:fixed;inset:0;background:linear-gradient(160deg,var(--primary),#6d28d9);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .auth-card{background:var(--card);border-radius:18px;padding:26px 22px;width:100%;max-width:360px;box-shadow:0 12px 50px rgba(0,0,0,.35)}
+  .auth-card h2{margin:0 0 4px;font-size:1.2rem;display:flex;align-items:center;gap:8px}
+  .auth-card p{margin:0 0 18px;font-size:.82rem;color:var(--muted)}
+  .auth-card label{display:block;font-size:.76rem;font-weight:600;color:var(--muted);margin-bottom:4px}
+  .auth-card input{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit;margin-bottom:12px}
+  .auth-card input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,70,229,.15)}
+  .auth-erro{color:var(--red);font-size:.8rem;min-height:18px;margin-bottom:8px}
+  .auth-card .btn{width:100%;justify-content:center}
+  .sync-chip{display:inline-flex;align-items:center;font-size:.72rem;font-weight:600;color:#fff;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);padding:6px 9px;border-radius:8px;white-space:nowrap}
+
   @media (max-width:560px){
     .resumo{grid-template-columns:repeat(2,1fr)}
     .grid{grid-template-columns:1fr}
@@ -110,13 +122,29 @@
 </style>
 </head>
 <body>
+<!-- Tela de login (sincronização na nuvem) -->
+<div class="auth-overlay" id="loginOverlay">
+  <form class="auth-card" id="loginForm">
+    <h2>🔒 Entrar</h2>
+    <p>Use seu e-mail e senha para sincronizar os pedidos entre o celular e o computador.</p>
+    <label for="loginEmail">E-mail</label>
+    <input type="email" id="loginEmail" autocomplete="username" required>
+    <label for="loginSenha">Senha</label>
+    <input type="password" id="loginSenha" autocomplete="current-password" required>
+    <div class="auth-erro" id="loginErro"></div>
+    <button type="submit" class="btn btn-primary" id="btnEntrar">Entrar</button>
+  </form>
+</div>
+
 <header>
   <div class="head-row">
     <h1>📦 Meus Pedidos</h1>
     <div class="tools">
+      <span class="sync-chip" id="syncStatus" title="Status da sincronização"></span>
       <button id="btnBackup" title="Salvar uma cópia para o Google Drive">⬇️ Backup</button>
       <button id="btnRestaurar" title="Carregar dados de um backup">⬆️ Restaurar</button>
       <input type="file" id="fileInput" accept="application/json,.json">
+      <button id="btnSair" title="Sair da conta" style="display:none">🚪 Sair</button>
     </div>
   </div>
 </header>
@@ -231,6 +259,11 @@
   </div>
 </div>
 
+<!-- SDK do Firebase (sincronização na nuvem) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
 <script>
 (function(){
   "use strict";
@@ -240,6 +273,7 @@
   let busca = "";
   let ordenar = localStorage.getItem("pedidos_ordenar") || "padrao";
   let pendenteEntregaId = null;
+  let db=null, docRef=null, unsub=null;
 
   // ---------- Datas (sem problema de fuso) ----------
   function hoje(){ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),d.getDate()); }
@@ -298,7 +332,7 @@
 
   // ---------- Armazenamento ----------
   function carregar(){ try{ return JSON.parse(localStorage.getItem(KEY))||[]; }catch(e){ return []; } }
-  function salvar(){ localStorage.setItem(KEY,JSON.stringify(pedidos)); }
+  function salvar(){ localStorage.setItem(KEY,JSON.stringify(pedidos)); nuvemSalvar(); }
 
   // ---------- Render ----------
   function render(){
@@ -487,9 +521,102 @@
     r.readAsText(f);
   });
 
+  // ---------- Sincronização (Firebase) ----------
+  const firebaseConfig = {
+    apiKey: "AIzaSyDDDLcfA6PqucWR9oZ-_EdD6DAWJsAjvzM",
+    authDomain: "pedidos-bio-86b47.firebaseapp.com",
+    projectId: "pedidos-bio-86b47",
+    storageBucket: "pedidos-bio-86b47.firebasestorage.app",
+    messagingSenderId: "231262798809",
+    appId: "1:231262798809:web:d0dd4b433ba7a8a8fb0fc8"
+  };
+
+  function setSync(txt){ const el=document.getElementById("syncStatus"); if(el) el.textContent=txt; }
+
+  function nuvemSalvar(){
+    if(!docRef) return;
+    setSync("☁️ Salvando…");
+    docRef.set({ pedidos: pedidos, atualizadoEm: Date.now() })
+      .catch(function(e){ console.warn("Falha ao salvar na nuvem:",e); setSync("⚠️ Sem conexão"); });
+  }
+
+  function iniciarSync(){
+    if(unsub) unsub();
+    unsub = docRef.onSnapshot({ includeMetadataChanges:true }, function(snap){
+      const data = snap.data();
+      if(data && Array.isArray(data.pedidos)){
+        pedidos = data.pedidos;
+        localStorage.setItem(KEY, JSON.stringify(pedidos));
+        render();
+        setSync(snap.metadata.fromCache ? "⚠️ Offline" : "☁️ Sincronizado");
+      } else if(!snap.metadata.fromCache){
+        // Servidor confirmou que ainda não há dados na nuvem → migra os pedidos locais
+        if(pedidos.length){ nuvemSalvar(); } else { setSync("☁️ Sincronizado"); }
+      }
+    }, function(err){ console.warn("Erro na sincronização:",err); setSync("⚠️ Erro de sync"); });
+  }
+
+  function mostrarLogin(msg){
+    document.getElementById("loginOverlay").style.display="flex";
+    document.getElementById("btnSair").style.display="none";
+    if(msg) document.getElementById("loginErro").textContent=msg;
+  }
+  function esconderLogin(){
+    document.getElementById("loginOverlay").style.display="none";
+    document.getElementById("btnSair").style.display="inline-block";
+    document.getElementById("loginErro").textContent="";
+  }
+
+  function iniciarFirebase(){
+    if(typeof firebase==="undefined" || !firebase.initializeApp){
+      setSync("📴 Local"); // sem internet/SDK: funciona offline só neste aparelho
+      return;
+    }
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    db.enablePersistence({synchronizeTabs:true}).catch(function(){});
+
+    document.getElementById("loginForm").addEventListener("submit", function(e){
+      e.preventDefault();
+      const email=document.getElementById("loginEmail").value.trim();
+      const senha=document.getElementById("loginSenha").value;
+      document.getElementById("loginErro").textContent="";
+      document.getElementById("btnEntrar").textContent="Entrando…";
+      firebase.auth().signInWithEmailAndPassword(email,senha)
+        .catch(function(err){
+          let m="Não foi possível entrar.";
+          if(err.code==="auth/invalid-credential"||err.code==="auth/wrong-password"||err.code==="auth/user-not-found") m="E-mail ou senha incorretos.";
+          else if(err.code==="auth/invalid-email") m="E-mail inválido.";
+          else if(err.code==="auth/network-request-failed") m="Sem conexão com a internet.";
+          else if(err.code==="auth/too-many-requests") m="Muitas tentativas. Aguarde um pouco.";
+          document.getElementById("loginErro").textContent=m;
+        })
+        .finally(function(){ document.getElementById("btnEntrar").textContent="Entrar"; });
+    });
+
+    document.getElementById("btnSair").addEventListener("click", function(){
+      if(unsub){ unsub(); unsub=null; }
+      docRef=null;
+      firebase.auth().signOut();
+    });
+
+    firebase.auth().onAuthStateChanged(function(user){
+      if(user){
+        docRef = db.collection("dados").doc(user.uid);
+        esconderLogin();
+        iniciarSync();
+      } else {
+        if(unsub){ unsub(); unsub=null; }
+        docRef=null;
+        mostrarLogin();
+      }
+    });
+  }
+
   // ---------- Início ----------
   resetForm();
   render();
+  iniciarFirebase();
 })();
 </script>
 </body>
