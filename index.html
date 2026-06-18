@@ -130,6 +130,23 @@
           <input id="descricao" required placeholder="Ex.: Fechadura digital, cimento, etc.">
         </div>
         <div class="field">
+          <label for="quantidade">Quantidade</label>
+          <input id="quantidade" inputmode="decimal" placeholder="Ex.: 10">
+        </div>
+        <div class="field">
+          <label for="unidade">Unidade</label>
+          <input id="unidade" list="unidades" placeholder="Ex.: un, saco, m²">
+          <datalist id="unidades">
+            <option value="un"></option><option value="pç"></option><option value="cx"></option>
+            <option value="kg"></option><option value="g"></option><option value="ton"></option>
+            <option value="saco"></option><option value="m"></option><option value="cm"></option>
+            <option value="m²"></option><option value="m³"></option><option value="L"></option>
+            <option value="mL"></option><option value="par"></option><option value="rolo"></option>
+            <option value="barra"></option><option value="folha"></option><option value="lata"></option>
+            <option value="galão"></option><option value="milheiro"></option>
+          </datalist>
+        </div>
+        <div class="field">
           <label for="fornecedor">Fornecedor / Loja</label>
           <input id="fornecedor" placeholder="Ex.: Leroy Merlin">
         </div>
@@ -240,6 +257,8 @@
 
   function cardHTML(p,s){
     const valor = p.valor ? '<span>💰 <b>R$ '+esc(p.valor)+'</b></span>' : '';
+    const qtdTxt = ((p.quantidade||'')+' '+(p.unidade||'')).trim();
+    const qtd  = qtdTxt ? '<span>📦 Qtd: <b>'+esc(qtdTxt)+'</b></span>' : '';
     const forn  = p.fornecedor ? '<div class="ped-sub">🏬 '+esc(p.fornecedor)+'</div>' : '';
     const obs   = p.obs ? '<div class="ped-obs">📝 '+esc(p.obs)+'</div>' : '';
     const ent   = p.entregue
@@ -250,6 +269,7 @@
         '<div class="ped-desc'+(p.entregue?" done":"")+'">'+esc(p.descricao)+'</div>'+
         forn+
         '<div class="ped-datas">'+
+          qtd+
           '<span>📅 Pedido: <b>'+fmt(p.dataPedido)+'</b></span>'+
           '<span>🚚 Previsão: <b>'+fmt(p.previsao)+'</b></span>'+
           (p.entregue&&p.dataEntrega?'<span>📬 Entregue: <b>'+fmt(p.dataEntrega)+'</b></span>':'')+
@@ -273,6 +293,8 @@
     const id=document.getElementById("editId").value;
     const dados={
       descricao:document.getElementById("descricao").value.trim(),
+      quantidade:document.getElementById("quantidade").value.trim(),
+      unidade:document.getElementById("unidade").value.trim(),
       fornecedor:document.getElementById("fornecedor").value.trim(),
       valor:document.getElementById("valor").value.trim(),
       dataPedido:document.getElementById("dataPedido").value,
@@ -308,6 +330,8 @@
       const p=pedidos.find(x=>x.id==id); if(!p) return;
       document.getElementById("editId").value=p.id;
       document.getElementById("descricao").value=p.descricao||"";
+      document.getElementById("quantidade").value=p.quantidade||"";
+      document.getElementById("unidade").value=p.unidade||"";
       document.getElementById("fornecedor").value=p.fornecedor||"";
       document.getElementById("valor").value=p.valor||"";
       document.getElementById("dataPedido").value=p.dataPedido||"";
