@@ -125,14 +125,17 @@
 <!-- Tela de login (sincronização na nuvem) -->
 <div class="auth-overlay" id="loginOverlay">
   <form class="auth-card" id="loginForm">
-    <h2>🔒 Entrar</h2>
-    <p>Use seu e-mail e senha para sincronizar os pedidos entre o celular e o computador.</p>
+    <h2 id="authTitulo">🔒 Entrar</h2>
+    <p id="authDesc">Use seu e-mail e senha para sincronizar os pedidos entre o celular e o computador.</p>
     <label for="loginEmail">E-mail</label>
     <input type="email" id="loginEmail" autocomplete="username" required>
     <label for="loginSenha">Senha</label>
-    <input type="password" id="loginSenha" autocomplete="current-password" required>
+    <input type="password" id="loginSenha" autocomplete="current-password" required minlength="6">
     <div class="auth-erro" id="loginErro"></div>
     <button type="submit" class="btn btn-primary" id="btnEntrar">Entrar</button>
+    <p style="text-align:center;margin:12px 0 0;font-size:.8rem">
+      <a href="#" id="linkAlternarAuth" style="color:var(--primary);text-decoration:none;font-weight:600">Criar uma conta</a>
+    </p>
   </form>
 </div>
 
@@ -263,6 +266,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 
 <script>
 (function(){
@@ -274,6 +278,7 @@
   let ordenar = localStorage.getItem("pedidos_ordenar") || "padrao";
   let pendenteEntregaId = null;
   let db=null, docRef=null, unsub=null;
+  let modoAuth = "entrar"; // "entrar" | "criar"
 
   // ---------- Datas (sem problema de fuso) ----------
   function hoje(){ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),d.getDate()); }
@@ -424,9 +429,13 @@
     };
     if(!dados.descricao||!dados.dataPedido||dados.prazoDias===""||isNaN(parseInt(dados.prazoDias,10))) return;
     if(id){
-      const p=pedidos.find(x=>x.id==id); Object.assign(p,dados);
+      const p=pedidos.find(x=>x.id==id);
+      const prazoMudou = p.dataPedido !== dados.dataPedido || String(prazoDe(p)) !== String(dados.prazoDias);
+      Object.assign(p,dados);
+      if(prazoMudou){ p.notifHojeEnviada=false; p.notifAtrasoEnviada=false; }
     }else{
       dados.id=Date.now(); dados.entregue=false; dados.dataEntrega=null;
+      dados.notifHojeEnviada=false; dados.notifAtrasoEnviada=false;
       pedidos.push(dados);
     }
     salvar(); resetForm(); render();
@@ -451,7 +460,7 @@
       document.getElementById("dataEntregaInput").value=p.dataEntrega||hojeISO();
       document.getElementById("modalEntrega").style.display="flex";
     },
-    reabrir(id){ const p=pedidos.find(x=>x.id==id); p.entregue=false; p.dataEntrega=null; salvar(); render(); },
+    reabrir(id){ const p=pedidos.find(x=>x.id==id); p.entregue=false; p.dataEntrega=null; p.notifHojeEnviada=false; p.notifAtrasoEnviada=false; salvar(); render(); },
     excluir(id){ if(confirm("Excluir este pedido?")){ pedidos=pedidos.filter(x=>x.id!=id); salvar(); render(); } },
     editar(id){
       const p=pedidos.find(x=>x.id==id); if(!p) return;
@@ -556,6 +565,35 @@
     }, function(err){ console.warn("Erro na sincronização:",err); setSync("⚠️ Erro de sync"); });
   }
 
+  // ---------- Notificações push (Firebase Cloud Messaging) ----------
+  // Chave gerada em: Console do Firebase > Configurações do projeto > Cloud Messaging > Web Push certificates
+  const VAPID_KEY = "BPFqggJR243GpGe1IVPe2uwN8iYvUC2dGtevhZNpEmYejiLLNDZliTVxeIKEvUBNxCNoAGjI5FtcVKp-ASR5YFU";
+
+  function registrarNotificacoes(user){
+    if(!("Notification" in window) || !("serviceWorker" in navigator) || typeof firebase.messaging!=="function") return;
+    navigator.serviceWorker.register("/firebase-messaging-sw.js").then(function(reg){
+      Notification.requestPermission().then(function(permissao){
+        if(permissao!=="granted") return;
+        const messaging=firebase.messaging();
+        messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: reg })
+          .then(function(token){
+            if(!token) return;
+            db.collection("dados").doc(user.uid).collection("tokens").doc(token).set({
+              token: token, criadoEm: Date.now(), userAgent: navigator.userAgent
+            });
+          })
+          .catch(function(err){ console.warn("Falha ao obter token FCM:",err); });
+
+        // Com o app aberto em primeiro plano o FCM não mostra notificação sozinho.
+        messaging.onMessage(function(payload){
+          const titulo=(payload.notification&&payload.notification.title)||"Controle de Pedidos";
+          const corpo=(payload.notification&&payload.notification.body)||"";
+          if(Notification.permission==="granted") new Notification(titulo,{body:corpo});
+        });
+      });
+    }).catch(function(err){ console.warn("Falha ao registrar service worker de notificações:",err); });
+  }
+
   function mostrarLogin(msg){
     document.getElementById("loginOverlay").style.display="flex";
     document.getElementById("btnSair").style.display="none";
@@ -576,22 +614,47 @@
     db = firebase.firestore();
     db.enablePersistence({synchronizeTabs:true}).catch(function(){});
 
+    document.getElementById("linkAlternarAuth").addEventListener("click", function(e){
+      e.preventDefault();
+      modoAuth = modoAuth==="entrar" ? "criar" : "entrar";
+      const senhaInput=document.getElementById("loginSenha");
+      if(modoAuth==="criar"){
+        document.getElementById("authTitulo").textContent="✨ Criar conta";
+        document.getElementById("authDesc").textContent="Crie uma conta com e-mail e senha para sincronizar os pedidos entre seus aparelhos.";
+        document.getElementById("btnEntrar").textContent="Criar conta";
+        this.textContent="Já tenho conta, entrar";
+        senhaInput.autocomplete="new-password";
+      }else{
+        document.getElementById("authTitulo").textContent="🔒 Entrar";
+        document.getElementById("authDesc").textContent="Use seu e-mail e senha para sincronizar os pedidos entre o celular e o computador.";
+        document.getElementById("btnEntrar").textContent="Entrar";
+        this.textContent="Criar uma conta";
+        senhaInput.autocomplete="current-password";
+      }
+      document.getElementById("loginErro").textContent="";
+    });
+
     document.getElementById("loginForm").addEventListener("submit", function(e){
       e.preventDefault();
       const email=document.getElementById("loginEmail").value.trim();
       const senha=document.getElementById("loginSenha").value;
       document.getElementById("loginErro").textContent="";
-      document.getElementById("btnEntrar").textContent="Entrando…";
-      firebase.auth().signInWithEmailAndPassword(email,senha)
+      document.getElementById("btnEntrar").textContent = modoAuth==="criar" ? "Criando conta…" : "Entrando…";
+      const acao = modoAuth==="criar"
+        ? firebase.auth().createUserWithEmailAndPassword(email,senha)
+        : firebase.auth().signInWithEmailAndPassword(email,senha);
+      acao
         .catch(function(err){
-          let m="Não foi possível entrar.";
+          let m = modoAuth==="criar" ? "Não foi possível criar a conta." : "Não foi possível entrar.";
           if(err.code==="auth/invalid-credential"||err.code==="auth/wrong-password"||err.code==="auth/user-not-found") m="E-mail ou senha incorretos.";
           else if(err.code==="auth/invalid-email") m="E-mail inválido.";
           else if(err.code==="auth/network-request-failed") m="Sem conexão com a internet.";
           else if(err.code==="auth/too-many-requests") m="Muitas tentativas. Aguarde um pouco.";
+          else if(err.code==="auth/email-already-in-use") m="Já existe uma conta com este e-mail. Tente entrar.";
+          else if(err.code==="auth/weak-password") m="A senha precisa ter pelo menos 6 caracteres.";
           document.getElementById("loginErro").textContent=m;
         })
-        .finally(function(){ document.getElementById("btnEntrar").textContent="Entrar"; });
+        .finally(function(){ document.getElementById("btnEntrar").textContent = modoAuth==="criar" ? "Criar conta" : "Entrar"; });
     });
 
     document.getElementById("btnSair").addEventListener("click", function(){
@@ -605,6 +668,7 @@
         docRef = db.collection("dados").doc(user.uid);
         esconderLogin();
         iniciarSync();
+        registrarNotificacoes(user);
       } else {
         if(unsub){ unsub(); unsub=null; }
         docRef=null;
