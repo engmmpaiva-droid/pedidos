@@ -20,6 +20,10 @@
     box-shadow:0 2px 8px rgba(0,0,0,.12)}
   .head-row{display:flex;align-items:center;justify-content:space-between;gap:10px;max-width:1000px;margin:0 auto}
   header h1{font-size:1.15rem;margin:0;display:flex;align-items:center;gap:8px}
+  .obra-row{display:flex;align-items:center;gap:8px;max-width:1000px;margin:10px auto 0;flex-wrap:wrap}
+  .obra-row select{flex:1;min-width:140px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
+    background:rgba(255,255,255,.15);color:#fff;font-weight:600}
+  .obra-row select option{color:#0f172a}
   .tools{display:flex;gap:6px;flex-wrap:wrap}
   .tools button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);
     padding:7px 10px;border-radius:8px;font-size:.78rem;cursor:pointer;font-weight:600}
@@ -150,6 +154,14 @@
       <button id="btnSair" title="Sair da conta" style="display:none">🚪 Sair</button>
     </div>
   </div>
+  <div class="obra-row" id="obraRow">
+    <select id="selectObra" title="Obra atual"></select>
+    <div class="tools obra-acts">
+      <button id="btnObraNova" title="Nova obra">➕ Obra</button>
+      <button id="btnObraRenomear" title="Renomear obra">✏️</button>
+      <button id="btnObraExcluir" title="Excluir obra">🗑️</button>
+    </div>
+  </div>
 </header>
 
 <main>
@@ -262,6 +274,27 @@
   </div>
 </div>
 
+<!-- Modal: excluir obra com pedidos (exclusão em cascata) -->
+<div class="modal-overlay" id="modalExcluirObra">
+  <div class="modal">
+    <h3>🗑️ Excluir obra</h3>
+    <p id="modalObraTexto"></p>
+    <div id="obraDelSenhaWrap">
+      <label for="obraDelSenha">Confirme sua senha</label>
+      <input type="password" id="obraDelSenha" autocomplete="current-password">
+    </div>
+    <div id="obraDelNomeWrap" style="display:none">
+      <label for="obraDelNomeInput">Digite o nome exato da obra para confirmar</label>
+      <input type="text" id="obraDelNomeInput">
+    </div>
+    <div class="auth-erro" id="obraDelErro"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="obraDelCancelar">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="obraDelConfirmar">Excluir obra e pedidos</button>
+    </div>
+  </div>
+</div>
+
 <!-- SDK do Firebase (sincronização na nuvem) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -279,6 +312,12 @@
   let pendenteEntregaId = null;
   let db=null, docRef=null, unsub=null;
   let modoAuth = "entrar"; // "entrar" | "criar"
+
+  const OBRAS_KEY = "obras_v1";
+  const OBRA_ATUAL_KEY = "obra_atual_v1";
+  let obras = carregarObras();
+  let obraAtualId = localStorage.getItem(OBRA_ATUAL_KEY) || null;
+  let obraParaExcluir = null; // usado pelo modal de exclusão
 
   // ---------- Datas (sem problema de fuso) ----------
   function hoje(){ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),d.getDate()); }
@@ -339,20 +378,43 @@
   function carregar(){ try{ return JSON.parse(localStorage.getItem(KEY))||[]; }catch(e){ return []; } }
   function salvar(){ localStorage.setItem(KEY,JSON.stringify(pedidos)); nuvemSalvar(); }
 
+  // ---------- Obras ----------
+  function carregarObras(){ try{ return JSON.parse(localStorage.getItem(OBRAS_KEY))||[]; }catch(e){ return []; } }
+  function salvarObras(){ localStorage.setItem(OBRAS_KEY,JSON.stringify(obras)); nuvemSalvar(); }
+
+  // Cria a obra "Geral" (id fixo, para convergir em migrações offline independentes)
+  // se ainda não houver nenhuma obra, e atribui a ela todo pedido sem obraId.
+  function migrarDados(){
+    let mudou=false;
+    if(!obras.length){ obras.push({id:"geral",nome:"Geral",criadoEm:Date.now()}); mudou=true; }
+    const geral = obras.find(o=>o.id==="geral") || obras[0];
+    pedidos.forEach(p=>{ if(!p.obraId){ p.obraId=geral.id; mudou=true; } });
+    return mudou;
+  }
+  // Garante que obraAtualId aponta para uma obra que realmente existe
+  function resolverObraAtual(){
+    if(!obraAtualId || !obras.some(o=>o.id===obraAtualId)){
+      obraAtualId = obras[0] ? obras[0].id : null;
+      localStorage.setItem(OBRA_ATUAL_KEY, obraAtualId||"");
+    }
+  }
+  function pedidosDaObra(){ return pedidos.filter(p=>p.obraId===obraAtualId); }
+
   // ---------- Render ----------
   function render(){
     refreshLocais();
+    const pedidosObra = pedidosDaObra();
     // resumo
     let pend=0,atras=0,entr=0;
-    pedidos.forEach(p=>{ const s=status(p);
+    pedidosObra.forEach(p=>{ const s=status(p);
       if(s.key==="entregue") entr++; else { pend++; if(s.key==="atrasado") atras++; } });
-    document.getElementById("stTotal").textContent=pedidos.length;
+    document.getElementById("stTotal").textContent=pedidosObra.length;
     document.getElementById("stPend").textContent=pend;
     document.getElementById("stAtras").textContent=atras;
     document.getElementById("stEntr").textContent=entr;
 
     // filtrar + ordenar
-    let lista=pedidos.map(p=>({p,s:status(p)})).filter(({p,s})=>{
+    let lista=pedidosObra.map(p=>({p,s:status(p)})).filter(({p,s})=>{
       if(filtro==="pendentes" && s.key==="entregue") return false;
       if(filtro==="atrasados" && s.key!=="atrasado") return false;
       if(filtro==="entregues" && s.key!=="entregue") return false;
@@ -365,7 +427,7 @@
     const cont=document.getElementById("lista");
     if(!lista.length){
       cont.innerHTML='<div class="vazio"><div class="em">🗂️</div><p>'+
-        (pedidos.length? "Nenhum pedido neste filtro." : "Nenhum pedido ainda. Lance o primeiro acima!")+'</p></div>';
+        (pedidosObra.length? "Nenhum pedido neste filtro." : "Nenhum pedido ainda nesta obra. Lance o primeiro acima!")+'</p></div>';
       return;
     }
     cont.innerHTML=lista.map(({p,s})=>cardHTML(p,s)).join("");
@@ -373,9 +435,9 @@
 
   function esc(t){ return (t||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
-  // Sugere no campo "Local" os lugares já cadastrados
+  // Sugere no campo "Local" os lugares já cadastrados nesta obra
   function refreshLocais(){
-    const locs=[...new Set(pedidos.map(p=>p.local).filter(Boolean))].sort(txt);
+    const locs=[...new Set(pedidosDaObra().map(p=>p.local).filter(Boolean))].sort(txt);
     document.getElementById("locais").innerHTML=locs.map(l=>'<option value="'+esc(l)+'"></option>').join("");
   }
 
@@ -436,6 +498,7 @@
     }else{
       dados.id=Date.now(); dados.entregue=false; dados.dataEntrega=null;
       dados.notifHojeEnviada=false; dados.notifAtrasoEnviada=false;
+      dados.obraId=obraAtualId;
       pedidos.push(dados);
     }
     salvar(); resetForm(); render();
@@ -493,6 +556,92 @@
   selOrd.value=ordenar;
   selOrd.addEventListener("change",function(){ ordenar=this.value; localStorage.setItem("pedidos_ordenar",ordenar); render(); });
 
+  // ---------- Obras ----------
+  function renderSelectObra(){
+    const sel=document.getElementById("selectObra");
+    sel.innerHTML=obras.map(o=>'<option value="'+esc(o.id)+'"'+(o.id===obraAtualId?' selected':'')+'>'+esc(o.nome)+'</option>').join("");
+  }
+  document.getElementById("selectObra").addEventListener("change",function(){
+    obraAtualId=this.value;
+    localStorage.setItem(OBRA_ATUAL_KEY,obraAtualId);
+    render();
+  });
+  document.getElementById("btnObraNova").addEventListener("click",function(){
+    const nome=prompt("Nome da nova obra:"); if(!nome||!nome.trim()) return;
+    const obra={id:"obra-"+Date.now(),nome:nome.trim(),criadoEm:Date.now()};
+    obras.push(obra); obraAtualId=obra.id;
+    localStorage.setItem(OBRA_ATUAL_KEY,obraAtualId);
+    salvarObras(); renderSelectObra(); render();
+  });
+  document.getElementById("btnObraRenomear").addEventListener("click",function(){
+    const obra=obras.find(o=>o.id===obraAtualId); if(!obra) return;
+    const nome=prompt("Novo nome da obra:",obra.nome); if(!nome||!nome.trim()) return;
+    obra.nome=nome.trim();
+    salvarObras(); renderSelectObra();
+  });
+  document.getElementById("btnObraExcluir").addEventListener("click",function(){
+    const obra=obras.find(o=>o.id===obraAtualId); if(!obra) return;
+    if(obras.length<=1){ alert("Não é possível excluir a única obra existente."); return; }
+    const qtd=pedidos.filter(p=>p.obraId===obra.id).length;
+    if(qtd===0){
+      if(confirm('Excluir a obra "'+obra.nome+'"? Esta ação não pode ser desfeita.')){
+        obras=obras.filter(o=>o.id!==obra.id);
+        resolverObraAtual(); salvarObras(); renderSelectObra(); render();
+      }
+      return;
+    }
+    abrirModalExcluirObra(obra,qtd);
+  });
+
+  // ---------- Modal: excluir obra com pedidos (exclusão em cascata) ----------
+  function abrirModalExcluirObra(obra,qtd){
+    obraParaExcluir={obra,qtd};
+    document.getElementById("modalObraTexto").textContent=
+      'A obra "'+obra.nome+'" tem '+qtd+' pedido(s). Excluir a obra também excluirá todos os pedidos dela. Esta ação não pode ser desfeita.';
+    const logado = typeof firebase!=="undefined" && firebase.auth && firebase.auth().currentUser;
+    document.getElementById("obraDelSenhaWrap").style.display=logado?"block":"none";
+    document.getElementById("obraDelNomeWrap").style.display=logado?"none":"block";
+    document.getElementById("obraDelSenha").value="";
+    document.getElementById("obraDelNomeInput").value="";
+    document.getElementById("obraDelErro").textContent="";
+    document.getElementById("modalExcluirObra").style.display="flex";
+  }
+  function fecharModalExcluirObra(){ obraParaExcluir=null; document.getElementById("modalExcluirObra").style.display="none"; }
+  document.getElementById("obraDelCancelar").addEventListener("click",fecharModalExcluirObra);
+  document.getElementById("modalExcluirObra").addEventListener("click",function(e){ if(e.target===this) fecharModalExcluirObra(); });
+  document.getElementById("obraDelConfirmar").addEventListener("click",function(){
+    if(!obraParaExcluir) return;
+    const {obra}=obraParaExcluir;
+    const erroEl=document.getElementById("obraDelErro"); erroEl.textContent="";
+    const logado = typeof firebase!=="undefined" && firebase.auth && firebase.auth().currentUser;
+    const btn=this;
+    function executarExclusao(){
+      pedidos=pedidos.filter(p=>p.obraId!==obra.id);
+      obras=obras.filter(o=>o.id!==obra.id);
+      resolverObraAtual();
+      salvar(); salvarObras(); renderSelectObra(); render();
+      fecharModalExcluirObra();
+    }
+    if(logado){
+      const senha=document.getElementById("obraDelSenha").value;
+      if(!senha){ erroEl.textContent="Informe sua senha."; return; }
+      btn.disabled=true; btn.textContent="Verificando…";
+      const user=firebase.auth().currentUser;
+      const cred=firebase.auth.EmailAuthProvider.credential(user.email,senha);
+      user.reauthenticateWithCredential(cred)
+        .then(executarExclusao)
+        .catch(function(err){
+          btn.disabled=false; btn.textContent="Excluir obra e pedidos";
+          erroEl.textContent=(err.code==="auth/wrong-password"||err.code==="auth/invalid-credential")
+            ? "Senha incorreta." : "Não foi possível confirmar. Tente novamente.";
+        });
+    }else{
+      const nome=document.getElementById("obraDelNomeInput").value.trim();
+      if(nome!==obra.nome){ erroEl.textContent="O nome digitado não confere. Nada foi excluído."; return; }
+      executarExclusao();
+    }
+  });
+
   // ---------- Modal de entrega ----------
   function fecharModal(){ pendenteEntregaId=null; document.getElementById("modalEntrega").style.display="none"; }
   document.getElementById("modalCancelar").addEventListener("click",fecharModal);
@@ -507,7 +656,7 @@
 
   // ---------- Backup / Restaurar ----------
   document.getElementById("btnBackup").addEventListener("click",function(){
-    const blob=new Blob([JSON.stringify(pedidos,null,2)],{type:"application/json"});
+    const blob=new Blob([JSON.stringify({pedidos,obras},null,2)],{type:"application/json"});
     const a=document.createElement("a");
     a.href=URL.createObjectURL(blob);
     a.download="pedidos-backup-"+hojeISO()+".json";
@@ -519,11 +668,18 @@
     const r=new FileReader();
     r.onload=()=>{
       try{
-        const dados=JSON.parse(r.result);
-        if(!Array.isArray(dados)) throw 0;
-        if(pedidos.length && !confirm("Substituir os "+pedidos.length+" pedido(s) atuais pelos "+dados.length+" do backup?")) return;
-        pedidos=dados; salvar(); render();
-        alert("Backup restaurado: "+dados.length+" pedido(s).");
+        const raw=JSON.parse(r.result);
+        let novosPedidos, novasObras;
+        if(Array.isArray(raw)){ novosPedidos=raw; novasObras=[]; } // formato antigo (sem obras)
+        else if(raw && Array.isArray(raw.pedidos)){
+          novosPedidos=raw.pedidos;
+          novasObras=Array.isArray(raw.obras)?raw.obras:[];
+        }else{ throw 0; }
+        if(pedidos.length && !confirm("Substituir os "+pedidos.length+" pedido(s) atuais pelos "+novosPedidos.length+" do backup?")) return;
+        pedidos=novosPedidos; obras=novasObras;
+        migrarDados(); resolverObraAtual();
+        salvar(); salvarObras(); renderSelectObra(); render();
+        alert("Backup restaurado: "+novosPedidos.length+" pedido(s).");
       }catch(err){ alert("Arquivo inválido. Selecione um backup gerado por este app."); }
       e.target.value="";
     };
@@ -545,7 +701,7 @@
   function nuvemSalvar(){
     if(!docRef) return;
     setSync("☁️ Salvando…");
-    docRef.set({ pedidos: pedidos, atualizadoEm: Date.now() })
+    docRef.set({ pedidos: pedidos, obras: obras, atualizadoEm: Date.now() })
       .catch(function(e){ console.warn("Falha ao salvar na nuvem:",e); setSync("⚠️ Sem conexão"); });
   }
 
@@ -555,12 +711,18 @@
       const data = snap.data();
       if(data && Array.isArray(data.pedidos)){
         pedidos = data.pedidos;
+        obras = Array.isArray(data.obras) ? data.obras : [];
+        const mudou = migrarDados();
+        resolverObraAtual();
         localStorage.setItem(KEY, JSON.stringify(pedidos));
+        localStorage.setItem(OBRAS_KEY, JSON.stringify(obras));
+        renderSelectObra();
         render();
         setSync(snap.metadata.fromCache ? "⚠️ Offline" : "☁️ Sincronizado");
+        if(mudou) nuvemSalvar();
       } else if(!snap.metadata.fromCache){
         // Servidor confirmou que ainda não há dados na nuvem → migra os pedidos locais
-        if(pedidos.length){ nuvemSalvar(); } else { setSync("☁️ Sincronizado"); }
+        if(pedidos.length || obras.length){ nuvemSalvar(); } else { setSync("☁️ Sincronizado"); }
       }
     }, function(err){ console.warn("Erro na sincronização:",err); setSync("⚠️ Erro de sync"); });
   }
@@ -678,7 +840,10 @@
   }
 
   // ---------- Início ----------
+  if(migrarDados()){ salvar(); salvarObras(); }
+  resolverObraAtual();
   resetForm();
+  renderSelectObra();
   render();
   iniciarFirebase();
 })();
